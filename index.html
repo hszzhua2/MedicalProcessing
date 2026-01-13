@@ -1,0 +1,923 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { 
+  Plus, Download, Upload, Trash2, X, Save, ZoomIn, ZoomOut, 
+  Activity, Users, Box, Layout, Globe, Database, Table as TableIcon, 
+  Grid, Layers, HardDrive, Copy, CornerUpLeft, CornerUpRight, 
+  MousePointer2, Maximize, Group, Ungroup, FileJson, Stethoscope, 
+  ClipboardCheck, Trash, Zap, Droplet, Wind, Flag, Edit3, Settings,
+  List, CheckSquare, Ruler, Sun, Moon, Palette, ChevronRight, ChevronDown
+} from 'lucide-react';
+
+// --- Constants & Translations ---
+
+const TRANSLATIONS = {
+  en: {
+    // UI
+    newProtocol: "New Protocol",
+    group: "Group Room",
+    ungroup: "Ungroup",
+    import: "Import",
+    saveProject: "Export",
+    fitView: "Fit",
+    viewCanvas: "Canvas",
+    viewDatabase: "Data",
+    undo: "Undo",
+    redo: "Redo",
+    copy: "Copy",
+    paste: "Paste",
+    
+    // Property Panel
+    panelTitleNode: "Node Properties",
+    panelTitleGroup: "Room Properties",
+    
+    // Tabs
+    tabMeta: "Meta & Intent",
+    tabActors: "Actors",
+    tabAction: "Action & QC",
+    tabRes: "Res & Waste",
+    tabArch: "Arch & MEP",
+
+    // Database Tabs
+    dbMaster: "Master Data",
+    dbArch: "Arch & MEP",
+    dbRes: "Res & Waste",
+    dbAction: "Action & QC",
+
+    // Fields
+    processName: "Process Name",
+    nodeColor: "Node Color",
+    groupName: "Room Name",
+    groupColor: "Room Color",
+    
+    processId: "Process ID",
+    domain: "Domain",
+    trigger: "Trigger/Intent",
+    goal: "Goal",
+    
+    subject: "Subject (Primary)",
+    object: "Object (Patient)",
+    staffCount: "Staff Count",
+    
+    sopSteps: "SOP Steps",
+    qcPoints: "QC Checkpoints",
+    
+    resources: "Resources",
+    outcomes: "Outcomes",
+    waste: "Medical Waste",
+    
+    area: "Area (m²)",
+    customArch: "Custom Specs",
+    addSpec: "Add Spec",
+    specName: "Param Name",
+    specValue: "Value",
+    
+    // Hint
+    hintOps: "Zoom: Scroll | Pan: Middle Click or Space+Drag | Connect: Drag Dot"
+  },
+  cn: {
+    // UI
+    newProtocol: "新建节点",
+    group: "编组",
+    ungroup: "解组",
+    import: "导入",
+    saveProject: "导出",
+    fitView: "适配",
+    viewCanvas: "画布",
+    viewDatabase: "数据",
+    undo: "撤销",
+    redo: "重做",
+    copy: "复制",
+    paste: "粘贴",
+
+    // Property Panel
+    panelTitleNode: "节点属性",
+    panelTitleGroup: "房间属性",
+
+    // Tabs
+    tabMeta: "信息与外观",
+    tabActors: "主体与客体",
+    tabAction: "行为与质控",
+    tabRes: "资源与废物",
+    tabArch: "建筑与机电",
+
+    // Database Tabs
+    dbMaster: "全量总表",
+    dbArch: "建筑与机电",
+    dbRes: "资源与废物",
+    dbAction: "行为与质控",
+
+    // Fields
+    processName: "流程名称",
+    nodeColor: "卡片颜色",
+    groupName: "房间/区域名称",
+    groupColor: "区域颜色",
+
+    processId: "流程编号",
+    domain: "所属领域",
+    trigger: "动因 (触发条件)",
+    goal: "目标",
+    
+    subject: "主体 (执行者)",
+    object: "客体 (对象/患者)",
+    staffCount: "定员数量",
+    
+    sopSteps: "SOP 步骤",
+    qcPoints: "质控关键点",
+    
+    resources: "工具与耗材",
+    outcomes: "产物 (样本/报告)",
+    waste: "医疗废物处理",
+    
+    area: "净面积 (m²)",
+    customArch: "建筑与机电参数 (自定义)",
+    addSpec: "添加参数",
+    specName: "参数名称 (如:氧气压力)",
+    specValue: "参数值 (如:0.4MPa)",
+
+    // Hint
+    hintOps: "缩放: 鼠标滚轮 | 平移: 中键或空格+拖拽 | 连线: 拖拽右侧圆点"
+  }
+};
+
+// --- Colors ---
+const COLORS = [
+  { hex: "#3b82f6", name: "Blue", class: "bg-blue-500" },
+  { hex: "#ef4444", name: "Red", class: "bg-red-500" },
+  { hex: "#10b981", name: "Green", class: "bg-green-500" },
+  { hex: "#f59e0b", name: "Orange", class: "bg-orange-500" },
+  { hex: "#8b5cf6", name: "Purple", class: "bg-purple-500" },
+  { hex: "#6b7280", name: "Gray", class: "bg-gray-500" },
+  { hex: "#ec4899", name: "Pink", class: "bg-pink-500" },
+  { hex: "#14b8a6", name: "Teal", class: "bg-teal-500" }
+];
+
+const DEFAULT_NODE_DATA = {
+  processId: "",
+  processName: "New Protocol", 
+  domain: "General", 
+  color: "#3b82f6", 
+  intent: { trigger: "", goal: "" },
+  actors: { primary: "", secondary: "", staffCount: 1 },
+  steps: [], 
+  qc: { checkpoints: [] },
+  resources: { equipment: [], consumables: [] },
+  outcomes: [], 
+  waste: { type: "", handling: "" },
+  spatial: {
+    area: 0, 
+    specs: [
+        { id: "p1", category: "Power", name: "Socket Type", value: "Universal" },
+    ]
+  },
+  custom: {} 
+};
+
+const App = () => {
+  const [lang, setLang] = useState('cn'); 
+  const t = TRANSLATIONS[lang]; 
+  const [viewMode, setViewMode] = useState('canvas');
+  const [theme, setTheme] = useState('light'); // 'light' | 'dark'
+
+  const [nodes, setNodes] = useState([]);
+  const [edges, setEdges] = useState([]);
+  const [groups, setGroups] = useState([]); 
+  
+  const [selectedIds, setSelectedIds] = useState(new Set()); 
+  const [selectedGroupId, setSelectedGroupId] = useState(null); 
+
+  const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
+  const [history, setHistory] = useState({ past: [], future: [] });
+  
+  const [clipboard, setClipboard] = useState(null);
+
+  // Interaction
+  const [mode, setMode] = useState('idle'); 
+  const [interactionStart, setInteractionStart] = useState({ x: 0, y: 0 });
+  const [tempConnection, setTempConnection] = useState(null); 
+  const [selectionBox, setSelectionBox] = useState(null); 
+
+  const canvasRef = useRef(null);
+  const mousePosRef = useRef({ x: 0, y: 0 });
+
+  // --- Helpers ---
+  const generateId = () => Math.random().toString(36).substr(2, 9);
+  const screenToWorld = (sx, sy) => ({
+    x: (sx - transform.x) / transform.k,
+    y: (sy - transform.y) / transform.k
+  });
+
+  // --- History ---
+  const saveHistory = useCallback(() => {
+    setHistory(prev => {
+      const newPast = [...prev.past, { 
+        nodes: JSON.parse(JSON.stringify(nodes)), 
+        edges: JSON.parse(JSON.stringify(edges)),
+        groups: JSON.parse(JSON.stringify(groups))
+      }];
+      if (newPast.length > 20) newPast.shift();
+      return { past: newPast, future: [] };
+    });
+  }, [nodes, edges, groups]);
+
+  const undo = useCallback(() => {
+    setHistory(prev => {
+      if (prev.past.length === 0) return prev;
+      const newPast = [...prev.past];
+      const prevState = newPast.pop();
+      setNodes(prevState.nodes);
+      setEdges(prevState.edges);
+      setGroups(prevState.groups);
+      return { past: newPast, future: [{ nodes, edges, groups }, ...prev.future] };
+    });
+  }, [nodes, edges, groups]);
+
+  const redo = useCallback(() => {
+    setHistory(prev => {
+      if (prev.future.length === 0) return prev;
+      const newFuture = [...prev.future];
+      const nextState = newFuture.shift();
+      setNodes(nextState.nodes);
+      setEdges(nextState.edges);
+      setGroups(nextState.groups);
+      return { past: [...prev.past, { nodes, edges, groups }], future: newFuture };
+    });
+  }, [nodes, edges, groups]);
+
+  // --- Copy/Paste ---
+  const copySelection = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    const selectedNodes = nodes.filter(n => selectedIds.has(n.id));
+    setClipboard(selectedNodes);
+  }, [nodes, selectedIds]);
+
+  const pasteClipboard = useCallback(() => {
+    if (!clipboard || clipboard.length === 0) return;
+    saveHistory();
+    const avgX = clipboard.reduce((sum, n) => sum + n.x, 0) / clipboard.length;
+    const avgY = clipboard.reduce((sum, n) => sum + n.y, 0) / clipboard.length;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    let targetCenter = { x: avgX + 50, y: avgY + 50 };
+    if (rect && mousePosRef.current) {
+        targetCenter = screenToWorld(mousePosRef.current.x - rect.left, mousePosRef.current.y - rect.top);
+    }
+    const newSelection = new Set();
+    const newNodes = clipboard.map(node => {
+      const newId = generateId();
+      newSelection.add(newId);
+      return {
+        ...node,
+        id: newId,
+        x: node.x - avgX + targetCenter.x,
+        y: node.y - avgY + targetCenter.y,
+        data: JSON.parse(JSON.stringify(node.data)) 
+      };
+    });
+    setNodes(prev => [...prev, ...newNodes]);
+    setSelectedIds(newSelection);
+  }, [clipboard, transform, saveHistory]);
+
+  // --- Grouping ---
+  const createGroup = () => {
+    if (selectedIds.size === 0) return;
+    saveHistory();
+    const selectedNodes = nodes.filter(n => selectedIds.has(n.id));
+    let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+    selectedNodes.forEach(n => {
+      minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + (n.height || 150));
+    });
+    const padding = 40;
+    const group = {
+      id: generateId(),
+      title: lang === 'cn' ? "新建功能区" : "New Zone",
+      x: minX - padding, y: minY - padding - 40,
+      width: (maxX - minX) + padding * 2, height: (maxY - minY) + padding * 2 + 40,
+      color: "#6366f1", memberIds: Array.from(selectedIds) // Indigo default
+    };
+    setGroups([...groups, group]);
+    setSelectedGroupId(group.id);
+    setSelectedIds(new Set());
+  };
+
+  const ungroup = () => {
+    if (!selectedGroupId) return;
+    saveHistory();
+    setGroups(groups.filter(g => g.id !== selectedGroupId));
+    setSelectedGroupId(null);
+  };
+
+  // --- File I/O (Fixed for Groups) ---
+  const exportJSON = () => {
+    const adj = {};
+    nodes.forEach(n => adj[n.id] = []);
+    edges.forEach(e => { if(adj[e.source]) adj[e.source].push(e.target); });
+
+    const exportData = {
+      meta: { projectName: "Medical Process Architecture", timestamp: new Date().toISOString(), version: "2.1" },
+      topology: {
+        // FIX: Export bounds to persist group size/position
+        rooms: groups.map(g => ({ 
+          id: g.id, 
+          name: g.title, 
+          color: g.color, 
+          processes: g.memberIds,
+          bounds: { x: g.x, y: g.y, width: g.width, height: g.height } 
+        })),
+        edges: edges.map(e => ({ from: e.source, to: e.target }))
+      },
+      protocols: nodes.map(node => ({
+        id: node.id,
+        name: node.data.processName,
+        next_steps: adj[node.id] || [],
+        intent: node.data.intent,
+        actors: node.data.actors,
+        action: { steps: node.data.steps, qc: node.data.qc },
+        resources: node.data.resources,
+        outputs: { outcomes: node.data.outcomes, waste: node.data.waste },
+        architecture: { area_req: node.data.spatial.area, specs: node.data.spatial.specs },
+        ui: { x: node.x, y: node.y, color: node.data.color }
+      }))
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `MedicalArch_V2.1_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+  };
+
+  const importJSON = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+          try {
+              const data = JSON.parse(evt.target.result);
+              if(data.protocols) {
+                  const newNodes = data.protocols.map(p => ({
+                      id: p.id,
+                      x: p.ui?.x || 0, y: p.ui?.y || 0, width: 240,
+                      data: {
+                          processId: p.id, processName: p.name, color: p.ui?.color || "#3b82f6",
+                          intent: p.intent || {}, actors: p.actors || {},
+                          steps: p.action?.steps || [], qc: p.action?.qc || { checkpoints: [] },
+                          resources: p.resources || { equipment: [], consumables: [] },
+                          outcomes: p.outputs?.outcomes || [], waste: p.outputs?.waste || {},
+                          spatial: { area: p.architecture?.area_req || 0, specs: p.architecture?.specs || [] }
+                      }
+                  }));
+                  setNodes(newNodes);
+                  setEdges(data.topology?.edges?.map(e => ({ id: generateId(), source: e.from, target: e.to })) || []);
+                  
+                  // FIX: Calculate bounds if missing, otherwise use saved bounds
+                  const newGroups = data.topology?.rooms?.map(r => {
+                      let x, y, width, height;
+                      if (r.bounds) {
+                          // Use saved bounds
+                          ({x, y, width, height} = r.bounds);
+                      } else {
+                          // Fallback: Calculate bounds from member nodes
+                          const memberNodes = newNodes.filter(n => r.processes.includes(n.id));
+                          if (memberNodes.length > 0) {
+                              let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                              memberNodes.forEach(n => {
+                                  minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+                                  maxX = Math.max(maxX, n.x + n.width); maxY = Math.max(maxY, n.y + 150); // approx height
+                              });
+                              const padding = 40;
+                              x = minX - padding;
+                              y = minY - padding - 40;
+                              width = (maxX - minX) + padding * 2;
+                              height = (maxY - minY) + padding * 2 + 40;
+                          } else {
+                              x = 0; y = 0; width = 200; height = 200; // Default if empty
+                          }
+                      }
+                      return {
+                          id: r.id, title: r.name, color: r.color || "#e0e7ff", memberIds: r.processes,
+                          x, y, width, height
+                      };
+                  }) || [];
+                  setGroups(newGroups);
+                  setTimeout(fitView, 100);
+              }
+          } catch(err) { alert("Import failed: " + err); }
+      };
+      reader.readAsText(file);
+  };
+
+  // --- Actions ---
+  const addNode = () => {
+    saveHistory();
+    const center = canvasRef.current ? screenToWorld(canvasRef.current.clientWidth/2, canvasRef.current.clientHeight/2) : { x: 0, y: 0 };
+    const newNode = {
+      id: generateId(), x: center.x - 120, y: center.y - 80, width: 240,
+      data: JSON.parse(JSON.stringify(DEFAULT_NODE_DATA))
+    };
+    newNode.data.processName = t.newProtocol;
+    setNodes([...nodes, newNode]);
+    setSelectedIds(new Set([newNode.id]));
+  };
+
+  const fitView = () => {
+    if (nodes.length === 0) { setTransform({ x: 0, y: 0, k: 1 }); return; }
+    let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+    nodes.forEach(n => { minX = Math.min(minX, n.x); minY = Math.min(minY, n.y); maxX = Math.max(maxX, n.x+n.width); maxY = Math.max(maxY, n.y+150); });
+    const padding = 100;
+    const { width, height } = canvasRef.current.getBoundingClientRect();
+    const w = maxX - minX + padding*2;
+    const h = maxY - minY + padding*2;
+    const k = Math.min(width/w, height/h, 1.2);
+    setTransform({ x: width/2 - (minX + (maxX-minX)/2)*k, y: height/2 - (minY + (maxY-minY)/2)*k, k });
+  };
+
+  const deleteSelection = () => {
+    if (selectedGroupId) {
+       saveHistory();
+       setGroups(gs => gs.filter(g => g.id !== selectedGroupId));
+       setSelectedGroupId(null);
+    } else if (selectedIds.size > 0) {
+       saveHistory();
+       const toDelete = selectedIds;
+       setNodes(ns => ns.filter(n => !toDelete.has(n.id)));
+       setEdges(es => es.filter(e => !toDelete.has(e.source) && !toDelete.has(e.target)));
+       setGroups(gs => gs.map(g => ({...g, memberIds: g.memberIds.filter(mid => !toDelete.has(mid))})));
+       setSelectedIds(new Set());
+    }
+  };
+
+  // --- Interaction Handlers ---
+  const handleWheel = (e) => {
+    if (viewMode !== 'canvas') return;
+    e.preventDefault();
+    const zoomSensitivity = 0.001;
+    const delta = -e.deltaY * zoomSensitivity;
+    const newScale = Math.min(Math.max(0.1, transform.k + delta), 5);
+    const rect = canvasRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const worldMouse = screenToWorld(mouseX, mouseY);
+    const newX = mouseX - worldMouse.x * newScale;
+    const newY = mouseY - worldMouse.y * newScale;
+    setTransform({ x: newX, y: newY, k: newScale });
+  };
+
+  const handleMouseDown = (e) => {
+    if (viewMode !== 'canvas') return;
+    const worldPos = screenToWorld(e.clientX - canvasRef.current.getBoundingClientRect().left, e.clientY - canvasRef.current.getBoundingClientRect().top);
+    const clickedGroup = groups.find(g => worldPos.x >= g.x && worldPos.x <= g.x + g.width && worldPos.y >= g.y && worldPos.y <= g.y + 40);
+    if (clickedGroup) {
+      e.stopPropagation(); setSelectedGroupId(clickedGroup.id); setSelectedIds(new Set()); 
+      setMode('dragging_group'); setInteractionStart({ x: e.clientX, y: e.clientY }); saveHistory(); return;
+    }
+    if (e.button === 1 || e.code === 'Space') {
+      setMode('panning'); setInteractionStart({ x: e.clientX, y: e.clientY }); return;
+    }
+    if (e.target === canvasRef.current) {
+       if(!e.ctrlKey) { setSelectedIds(new Set()); setSelectedGroupId(null); }
+       setMode('box_selecting'); setInteractionStart({ x: e.clientX, y: e.clientY }); setSelectionBox({ x: e.clientX, y: e.clientY, w: 0, h: 0 });
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    mousePosRef.current = { x: e.clientX, y: e.clientY };
+    if (mode === 'idle') return;
+    const dx = e.clientX - interactionStart.x; const dy = e.clientY - interactionStart.y;
+    const wDx = dx / transform.k; const wDy = dy / transform.k;
+
+    if (mode === 'panning') {
+       setTransform(t => ({ ...t, x: t.x + dx, y: t.y + dy })); setInteractionStart({ x: e.clientX, y: e.clientY });
+    } else if (mode === 'dragging_node') {
+       setNodes(ns => ns.map(n => selectedIds.has(n.id) ? { ...n, x: n.x + wDx, y: n.y + wDy } : n)); setInteractionStart({ x: e.clientX, y: e.clientY });
+    } else if (mode === 'dragging_group') {
+       const g = groups.find(g => g.id === selectedGroupId);
+       if(g) {
+         setGroups(gs => gs.map(gx => gx.id===g.id ? { ...gx, x: gx.x+wDx, y: gx.y+wDy } : gx));
+         setNodes(ns => ns.map(n => g.memberIds.includes(n.id) ? { ...n, x: n.x+wDx, y: n.y+wDy } : n));
+       } setInteractionStart({ x: e.clientX, y: e.clientY });
+    } else if (mode === 'box_selecting') {
+       setSelectionBox({ x: Math.min(interactionStart.x, e.clientX), y: Math.min(interactionStart.y, e.clientY), w: Math.abs(e.clientX - interactionStart.x), h: Math.abs(e.clientY - interactionStart.y) });
+    } else if (mode === 'connecting' && tempConnection) {
+       const rect = canvasRef.current.getBoundingClientRect(); const wp = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+       setTempConnection(prev => ({ ...prev, currX: wp.x, currY: wp.y }));
+    }
+  };
+
+  const handleMouseUp = (e) => {
+    if (mode === 'box_selecting' && selectionBox) {
+       const rect = canvasRef.current.getBoundingClientRect();
+       const sl = selectionBox.x - rect.left; const st = selectionBox.y - rect.top; const sr = sl + selectionBox.w; const sb = st + selectionBox.h;
+       const newSel = new Set(e.ctrlKey ? selectedIds : []);
+       nodes.forEach(n => { const sx = n.x * transform.k + transform.x; const sy = n.y * transform.k + transform.y; if(sx > sl && sx < sr && sy > st && sy < sb) newSel.add(n.id); });
+       setSelectedIds(newSel); setSelectionBox(null);
+    }
+    if (mode === 'connecting') {
+       const rect = canvasRef.current.getBoundingClientRect(); const wp = screenToWorld(e.clientX - rect.left, e.clientY - rect.top);
+       const target = nodes.find(n => wp.x >= n.x && wp.x <= n.x + n.width && wp.y >= n.y && wp.y <= n.y + 150);
+       if (target && target.id !== tempConnection.sourceId) {
+          const exists = edges.some(edge => edge.source === tempConnection.sourceId && edge.target === target.id);
+          if (!exists) setEdges(es => [...es, { id: generateId(), source: tempConnection.sourceId, target: target.id }]);
+       }
+       setTempConnection(null);
+    }
+    setMode('idle');
+  };
+
+  // --- Data Mutation ---
+  const updateNodeData = (id, newData) => {
+    setNodes(ns => ns.map(n => n.id === id ? { ...n, data: newData } : n));
+  };
+
+  const updateNodeField = (id, path, val) => {
+    saveHistory();
+    setNodes(ns => ns.map(n => {
+        if(n.id !== id) return n;
+        const newData = JSON.parse(JSON.stringify(n.data));
+        const parts = path.split('.'); let cur = newData;
+        for(let i=0; i<parts.length-1; i++) { if(!cur[parts[i]]) cur[parts[i]] = {}; cur = cur[parts[i]]; }
+        cur[parts[parts.length-1]] = val;
+        return {...n, data: newData};
+    }));
+  };
+
+  const updateNodeSpec = (id, specName, val) => {
+    saveHistory();
+    setNodes(ns => ns.map(n => {
+        if(n.id !== id) return n;
+        const newData = JSON.parse(JSON.stringify(n.data));
+        if(!newData.spatial.specs) newData.spatial.specs = [];
+        const existing = newData.spatial.specs.find(s => s.name === specName);
+        if(existing) existing.value = val; else newData.spatial.specs.push({ id: Date.now(), category: "Custom", name: specName, value: val });
+        return {...n, data: newData};
+    }));
+  };
+
+  const deleteNode = (id) => {
+    saveHistory();
+    const toDelete = new Set([id]);
+    setNodes(ns => ns.filter(n => !toDelete.has(n.id)));
+    setEdges(es => es.filter(e => !toDelete.has(e.source) && !toDelete.has(e.target)));
+    setGroups(gs => gs.map(g => ({...g, memberIds: g.memberIds.filter(mid => !toDelete.has(mid))})));
+  }
+
+  // --- Keyboard Shortcuts ---
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); redo(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') { e.preventDefault(); copySelection(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') { e.preventDefault(); pasteClipboard(); }
+      if (e.key === 'Delete' || e.key === 'Backspace') deleteSelection();
+      if ((e.ctrlKey || e.metaKey) && e.key === 'g') { e.preventDefault(); createGroup(); }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo, copySelection, pasteClipboard, selectedIds, selectedGroupId, nodes, groups]);
+
+  // --- Render Helpers ---
+  const activeNode = selectedIds.size === 1 ? nodes.find(n => n.id === Array.from(selectedIds)[0]) : null;
+  const activeGroup = selectedGroupId ? groups.find(g => g.id === selectedGroupId) : null;
+
+  return (
+    <div className={`${theme} flex h-screen w-full bg-gray-100 dark:bg-gray-900 overflow-hidden font-sans text-gray-800 dark:text-gray-100 select-none transition-colors duration-300`}>
+      
+      {/* Top Bar */}
+      <div className="absolute top-0 w-full h-14 bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-700 shadow-sm z-30 flex items-center justify-between px-4 transition-colors">
+        <div className="flex items-center gap-4">
+           <div className="bg-indigo-600 text-white p-1.5 rounded shadow-lg shadow-indigo-500/30"><Activity size={20}/></div>
+           <h1 className="font-bold text-lg tracking-tight hidden md:block bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-blue-600 dark:from-indigo-400 dark:to-blue-400">Medical Scenario Architect Pro</h1>
+           <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium ml-4">
+             <button onClick={()=>setViewMode('canvas')} className={`px-3 py-1.5 rounded-md flex items-center gap-2 transition-all ${viewMode==='canvas'?'bg-white dark:bg-gray-700 shadow-sm text-indigo-600 dark:text-indigo-300':'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}`}><Layout size={14}/> {t.viewCanvas}</button>
+             <button onClick={()=>setViewMode('database')} className={`px-3 py-1.5 rounded-md flex items-center gap-2 transition-all ${viewMode==='database'?'bg-white dark:bg-gray-700 shadow-sm text-indigo-600 dark:text-indigo-300':'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}`}><Database size={14}/> {t.viewDatabase}</button>
+           </div>
+        </div>
+        <div className="flex items-center gap-3">
+           <div className="flex items-center border-r border-gray-200 dark:border-gray-700 pr-3 mr-1 gap-1">
+             <ToolbarBtn onClick={undo} icon={<CornerUpLeft size={16}/>} title={t.undo} />
+             <ToolbarBtn onClick={redo} icon={<CornerUpRight size={16}/>} title={t.redo} />
+             <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1"></div>
+             <ToolbarBtn onClick={copySelection} icon={<Copy size={16}/>} title={t.copy} />
+             <ToolbarBtn onClick={pasteClipboard} icon={<MousePointer2 size={16}/>} title={t.paste} disabled={!clipboard} />
+             <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1"></div>
+             <ToolbarBtn onClick={createGroup} icon={<Group size={16}/>} label={t.group} title="Ctrl+G" className="hidden lg:flex"/>
+             <ToolbarBtn onClick={ungroup} icon={<Ungroup size={16}/>} label={t.ungroup} className="hidden lg:flex"/>
+             <div className="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-1"></div>
+             <ToolbarBtn onClick={fitView} icon={<Maximize size={16}/>} title={t.fitView} />
+           </div>
+           
+           <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
+              <button onClick={()=>setLang(l=>l==='cn'?'en':'cn')} className="p-1.5 px-2 rounded hover:bg-white dark:hover:bg-gray-700 text-xs font-bold">{lang==='cn'?'EN':'中'}</button>
+              <button onClick={()=>setTheme(t=>t==='light'?'dark':'light')} className="p-1.5 rounded hover:bg-white dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                 {theme==='light' ? <Moon size={14}/> : <Sun size={14}/>}
+              </button>
+           </div>
+
+           <button onClick={addNode} className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm shadow-indigo-200 dark:shadow-none transition-all"><Plus size={16}/> {t.newProtocol}</button>
+           <button onClick={exportJSON} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 shadow-sm shadow-emerald-200 dark:shadow-none transition-all"><Download size={16}/> {t.saveProject}</button>
+           <label className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 cursor-pointer transition-all">
+              <Upload size={16}/> {t.import}
+              <input type="file" className="hidden" accept=".json" onChange={importJSON}/>
+           </label>
+        </div>
+      </div>
+
+      <div className="flex-1 relative mt-14 w-full h-full overflow-hidden">
+        {/* CANVAS LAYER */}
+        <div 
+           ref={canvasRef}
+           className={`absolute inset-0 transition-opacity duration-300 ${viewMode==='canvas'?'z-10 opacity-100':'z-0 opacity-0 pointer-events-none'}`}
+           style={{ 
+             backgroundColor: theme==='dark'?'#0f172a':'#f8fafc', 
+             backgroundImage: `radial-gradient(${theme==='dark'?'#334155':'#cbd5e1'} 1px, transparent 1px)`, 
+             backgroundSize: '20px 20px', 
+             cursor: mode==='panning'?'grabbing':mode==='box_selecting'?'crosshair':'default' 
+           }}
+           onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onWheel={handleWheel}
+        >
+          <div className="absolute origin-top-left" style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.k})` }}>
+             
+             {/* Groups */}
+             {groups.map(g => (
+               <div key={g.id} 
+                 className={`absolute border-2 rounded-xl transition-all ${selectedGroupId===g.id ? 'ring-2 ring-indigo-500 shadow-2xl' : 'border-indigo-200 dark:border-indigo-900/50 shadow-sm'}`}
+                 style={{ left: g.x, top: g.y, width: g.width, height: g.height, backgroundColor: g.color + '15' }}
+               >
+                  <div className="h-9 bg-white/80 dark:bg-gray-800/80 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center px-3 cursor-grab active:cursor-grabbing backdrop-blur-sm rounded-t-lg">
+                     <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200 uppercase tracking-wider">{g.title}</span>
+                  </div>
+               </div>
+             ))}
+
+             {/* Edges */}
+             <svg className="overflow-visible absolute top-0 left-0 pointer-events-none">
+               <defs><marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme==='dark'?'#94a3b8':'#64748b'}/></marker></defs>
+               {edges.map(e => {
+                 const src = nodes.find(n=>n.id===e.source); const tgt = nodes.find(n=>n.id===e.target);
+                 if(!src || !tgt) return null;
+                 const sx = src.x + src.width; const sy = src.y + 75; const tx = tgt.x; const ty = tgt.y + 75;
+                 const d = `M ${sx} ${sy} C ${sx+50} ${sy}, ${tx-50} ${ty}, ${tx} ${ty}`;
+                 return <path key={e.id} d={d} fill="none" stroke={theme==='dark'?'#94a3b8':'#64748b'} strokeWidth="2" markerEnd="url(#arrow)"/>
+               })}
+               {tempConnection && <path d={`M ${tempConnection.startX} ${tempConnection.startY} L ${tempConnection.currX} ${tempConnection.currY}`} stroke="#6366f1" strokeWidth="2" strokeDasharray="5,5"/>}
+             </svg>
+
+             {/* Nodes */}
+             {nodes.map(n => (
+               <div key={n.id}
+                 className={`absolute bg-white dark:bg-gray-800 rounded-xl shadow-sm border transition-all hover:shadow-xl group ${selectedIds.has(n.id) ? 'ring-2 ring-indigo-500 border-indigo-500 z-50' : 'border-gray-200 dark:border-gray-700 z-10'}`}
+                 style={{ left: n.x, top: n.y, width: n.width }}
+                 onMouseDown={(e) => {
+                   e.stopPropagation(); const newSel = new Set(e.ctrlKey ? selectedIds : [n.id]);
+                   if(e.ctrlKey && selectedIds.has(n.id)) newSel.delete(n.id); else newSel.add(n.id);
+                   setSelectedIds(newSel); setSelectedGroupId(null); setMode('dragging_node'); setInteractionStart({x:e.clientX, y:e.clientY}); saveHistory();
+                 }}
+               >
+                 <div className="h-1.5 rounded-t-xl w-full" style={{backgroundColor: n.data.color || "#3b82f6"}}></div>
+                 <div className="p-4">
+                   <div className="flex justify-between items-start mb-3">
+                     <span className="font-bold text-sm text-gray-800 dark:text-gray-100 leading-tight">{n.data.processName}</span>
+                   </div>
+                   <div className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700/50 p-1.5 rounded"><Users size={12}/> {n.data.actors.primary || "No Actor"}</div>
+                      {n.data.intent.trigger && <div className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700/50 p-1.5 rounded"><Flag size={12}/> {n.data.intent.trigger}</div>}
+                   </div>
+                 </div>
+                 <div 
+                   className="absolute -right-2.5 top-1/2 -mt-1.5 w-5 h-5 rounded-full bg-white dark:bg-gray-700 border-2 border-indigo-400 dark:border-indigo-500 flex items-center justify-center cursor-crosshair hover:bg-indigo-500 hover:border-indigo-500 hover:scale-110 transition-all shadow-sm opacity-0 group-hover:opacity-100 z-20"
+                   onMouseDown={(e)=>{ e.stopPropagation(); setMode('connecting'); setTempConnection({sourceId:n.id, startX:n.x+n.width, startY:n.y+75, currX:n.x+n.width, currY:n.y+75}); }}
+                 ></div>
+               </div>
+             ))}
+          </div>
+          {selectionBox && <div className="absolute bg-indigo-500/10 border border-indigo-500 pointer-events-none" style={{left:selectionBox.x, top:selectionBox.y, width:selectionBox.w, height:selectionBox.h}}/>}
+          <div className="absolute bottom-4 left-4 text-xs text-gray-400 bg-white/90 dark:bg-gray-800/90 p-2 px-3 rounded-full backdrop-blur border border-gray-200 dark:border-gray-700 shadow-sm">{t.hintOps}</div>
+        </div>
+      
+        {/* RIGHT SIDEBAR */}
+        {(activeNode || activeGroup) && viewMode==='canvas' && (
+          <div className="absolute top-0 right-0 h-full w-96 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 shadow-2xl z-40 flex flex-col overflow-hidden transition-transform duration-300">
+             {activeNode ? (
+                <NodePropertyEditor node={activeNode} t={t} onClose={()=>setSelectedIds(new Set())} updateData={(d) => updateNodeData(activeNode.id, d)}/>
+             ) : (
+                <GroupPropertyEditor group={activeGroup} t={t} onClose={()=>setSelectedGroupId(null)} updateGroup={(gData) => setGroups(gs => gs.map(g => g.id===activeGroup.id ? {...g, ...gData} : g))}/>
+             )}
+          </div>
+        )}
+
+        {/* DATABASE VIEW */}
+        {viewMode==='database' && (
+          <div className="absolute inset-0 bg-white dark:bg-gray-900 z-20 flex overflow-hidden">
+             <DatabaseView 
+                nodes={nodes} groups={groups} t={t} 
+                onUpdate={updateNodeField} 
+                onUpdateSpec={updateNodeSpec}
+                onDelete={deleteNode}
+             />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- Components ---
+
+const ToolbarBtn = ({ onClick, icon, label, title, disabled, className }) => (
+  <button 
+    onClick={onClick} 
+    disabled={disabled}
+    className={`p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-600 dark:text-gray-300 transition-colors flex items-center gap-1 ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`} 
+    title={title}
+  >
+    {icon} {label && <span className="text-xs font-medium">{label}</span>}
+  </button>
+);
+
+const DatabaseView = ({ nodes, groups, t, onUpdate, onUpdateSpec, onDelete }) => {
+  const [tab, setTab] = useState('master');
+  const getGroupName = (nodeId) => { const g = groups.find(g => g.memberIds.includes(nodeId)); return g ? g.title : "-"; };
+  const allSpecNames = Array.from(new Set(nodes.flatMap(n => (n.data.spatial.specs || []).map(s => s.name))));
+
+  const renderCell = (node, path, type='text') => {
+     const parts = path.split('.'); let val = node.data; for(let p of parts) { if(!val) break; val = val[p]; }
+     return <input className="w-full bg-transparent border-none focus:ring-2 focus:ring-indigo-500 rounded px-1 text-sm text-gray-700 dark:text-gray-300" 
+       value={val === null || val === undefined ? '' : val} onChange={(e) => onUpdate(node.id, path, type==='number' ? parseFloat(e.target.value) : e.target.value)} type={type} />;
+  };
+  const renderSpecCell = (node, specName) => {
+    const spec = (node.data.spatial.specs || []).find(s => s.name === specName);
+    return <input className="w-full bg-transparent border-none focus:ring-2 focus:ring-indigo-500 rounded px-1 text-sm text-gray-700 dark:text-gray-300" 
+      value={spec ? spec.value : ""} onChange={(e) => onUpdateSpec(node.id, specName, e.target.value)} placeholder="-" />;
+  };
+
+  return (
+    <div className="flex w-full h-full">
+      <div className="w-64 bg-gray-50 dark:bg-gray-800/50 border-r border-gray-200 dark:border-gray-700 flex flex-col py-6">
+         <div className="px-6 mb-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Data Views</div>
+         {[
+           {id:'master', label:t.dbMaster, icon:<TableIcon size={16}/>},
+           {id:'arch', label:t.dbArch, icon:<Ruler size={16}/>},
+           {id:'res', label:t.dbRes, icon:<HardDrive size={16}/>},
+           {id:'action', label:t.dbAction, icon:<List size={16}/>},
+         ].map(item => (
+           <button key={item.id} onClick={()=>setTab(item.id)}
+             className={`flex items-center gap-3 px-6 py-3 text-sm font-medium transition-all border-l-4 ${tab===item.id ? 'bg-white dark:bg-gray-800 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+           >
+             {item.icon} {item.label}
+           </button>
+         ))}
+      </div>
+      <div className="flex-1 flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
+         <div className="h-16 border-b border-gray-200 dark:border-gray-700 flex items-center px-8 bg-white dark:bg-gray-900">
+            <h2 className="text-xl font-bold text-gray-800 dark:text-white flex items-center gap-2">{t[`db${tab.charAt(0).toUpperCase()+tab.slice(1)}`]}</h2>
+         </div>
+         <div className="flex-1 overflow-auto">
+           <table className="w-full text-left border-collapse">
+             <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0 z-10 shadow-sm text-xs text-gray-500 dark:text-gray-400 uppercase font-bold tracking-wider">
+               <tr>
+                 <th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700 w-16">#</th>
+                 <th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700 min-w-[200px]">{t.processName}</th>
+                 <th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700">{t.groupName}</th>
+                 {tab === 'master' && <><th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700">{t.processId}</th><th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700">{t.subject}</th></>}
+                 {tab === 'arch' && <><th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/20">{t.area}</th>{allSpecNames.map(name => <th key={name} className="py-4 px-6 border-b border-gray-200 dark:border-gray-700 min-w-[120px] text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/20">{name}</th>)}</>}
+                 {tab === 'res' && <><th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700">{t.resources}</th><th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700">{t.waste}</th></>}
+                 {tab === 'action' && <><th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700">{t.sopSteps}</th><th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700">{t.qcPoints}</th></>}
+                 <th className="py-4 px-6 border-b border-gray-200 dark:border-gray-700 w-16"></th>
+               </tr>
+             </thead>
+             <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-sm">
+               {nodes.map((node, idx) => (
+                 <tr key={node.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 group transition-colors">
+                   <td className="py-3 px-6 text-gray-400 dark:text-gray-600 font-mono">{idx+1}</td>
+                   <td className="py-3 px-6 border-r border-gray-100 dark:border-gray-800 font-medium">{renderCell(node, 'processName')}</td>
+                   <td className="py-3 px-6 border-r border-gray-100 dark:border-gray-800 text-gray-500 dark:text-gray-400">{getGroupName(node.id)}</td>
+                   {tab === 'master' && <><td className="py-3 px-6 border-r border-gray-100 dark:border-gray-800 font-mono text-xs text-gray-500">{renderCell(node, 'processId')}</td><td className="py-3 px-6 border-r border-gray-100 dark:border-gray-800">{renderCell(node, 'actors.primary')}</td></>}
+                   {tab === 'arch' && <><td className="py-3 px-6 border-r border-gray-100 dark:border-gray-800 bg-indigo-50/30 dark:bg-indigo-900/10 font-bold text-indigo-700 dark:text-indigo-300">{renderCell(node, 'spatial.area', 'number')}</td>{allSpecNames.map(name => <td key={name} className="py-3 px-6 border-r border-gray-100 dark:border-gray-800 bg-indigo-50/30 dark:bg-indigo-900/10">{renderSpecCell(node, name)}</td>)}</>}
+                   {tab === 'res' && <><td className="py-3 px-6 border-r border-gray-100 dark:border-gray-800">{node.data.resources.equipment.join(", ")}</td><td className="py-3 px-6 border-r border-gray-100 dark:border-gray-800">{renderCell(node, 'waste.type')}</td></>}
+                   {tab === 'action' && <><td className="py-3 px-6 border-r border-gray-100 dark:border-gray-800 text-center">{node.data.steps?.length||0}</td><td className="py-3 px-6 border-r border-gray-100 dark:border-gray-800 text-center">{node.data.qc?.checkpoints?.length||0}</td></>}
+                   <td className="py-3 px-6 text-center"><button onClick={()=>onDelete(node.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={14}/></button></td>
+                 </tr>
+               ))}
+             </tbody>
+           </table>
+         </div>
+      </div>
+    </div>
+  );
+};
+
+const GroupPropertyEditor = ({ group, updateGroup, t, onClose }) => (
+  <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
+    <div className="p-5 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+       <span className="font-bold text-gray-800 dark:text-white flex items-center gap-2"><Group size={18}/> {t.panelTitleGroup}</span>
+       <button onClick={onClose}><X size={20} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"/></button>
+    </div>
+    <div className="p-6 space-y-6">
+       <Field label={t.groupName} val={group.title} set={v => updateGroup({title: v})} />
+       <div>
+          <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-wider">{t.groupColor}</label>
+          <div className="flex flex-wrap gap-3">
+            {COLORS.map(c => (
+              <button key={c.hex} className={`w-8 h-8 rounded-full border-2 shadow-sm transition-transform hover:scale-110 ${group.color===c.hex?'border-gray-600 dark:border-white scale-110':'border-transparent'}`} style={{backgroundColor: c.hex}} onClick={()=>updateGroup({color: c.hex})}/>
+            ))}
+          </div>
+       </div>
+    </div>
+  </div>
+);
+
+const NodePropertyEditor = ({ node, updateData, t, onClose }) => {
+  const [tab, setTab] = useState('meta');
+  const d = node.data;
+  const setD = (path, val) => {
+    const newData = JSON.parse(JSON.stringify(d));
+    const parts = path.split('.'); let cur = newData; for(let i=0; i<parts.length-1; i++) cur = cur[parts[i]]; cur[parts[parts.length-1]] = val;
+    updateData(newData);
+  };
+  return (
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
+      <div className="p-5 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center shadow-sm z-10">
+         <div className="flex-1 mr-4">
+           <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest mb-1">{t.panelTitleNode}</div>
+           <input className="font-bold text-xl text-gray-900 dark:text-white bg-transparent border-none p-0 focus:ring-0 w-full placeholder-gray-300" value={d.processName} onChange={e=>setD('processName', e.target.value)}/>
+         </div>
+         <button onClick={onClose}><X size={20} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"/></button>
+      </div>
+      <div className="flex border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-[10px] font-bold text-gray-500 dark:text-gray-400 overflow-x-auto no-scrollbar">
+        {['meta','actors','action','res','arch'].map(k => (<button key={k} onClick={()=>setTab(k)} className={`flex-1 py-3 px-3 whitespace-nowrap border-b-2 transition-colors ${tab===k ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400' : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-700'}`}>{t[`tab${k.charAt(0).toUpperCase()+k.slice(1)}`]}</button>))}
+      </div>
+      <div className="flex-1 overflow-y-auto p-6 space-y-8">
+        {tab === 'meta' && (
+          <>
+            <div className="space-y-4">
+               <Field label={t.processId} val={d.processId} set={v=>setD('processId',v)} />
+               <Field label={t.domain} val={d.domain} set={v=>setD('domain',v)} />
+               <div><label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-wider">{t.nodeColor}</label><div className="flex gap-3 flex-wrap">{COLORS.map(c => (<button key={c.hex} onClick={()=>setD('color', c.hex)} className={`w-8 h-8 rounded-full border-2 shadow-sm transition-transform hover:scale-110 ${d.color===c.hex ? 'border-gray-800 dark:border-white scale-110':'border-transparent'}`} style={{backgroundColor: c.hex}}/>))}</div></div>
+            </div>
+            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-800/50 space-y-4">
+               <Field label={t.trigger} val={d.intent.trigger} set={v=>setD('intent.trigger',v)} area />
+               <Field label={t.goal} val={d.intent.goal} set={v=>setD('intent.goal',v)} />
+            </div>
+          </>
+        )}
+        {tab === 'actors' && (
+          <div className="space-y-5">
+             <Field label={t.subject} val={d.actors.primary} set={v=>setD('actors.primary',v)} icon={<Stethoscope size={14}/>} />
+             <Field label={t.object} val={d.actors.secondary} set={v=>setD('actors.secondary',v)} icon={<Users size={14}/>} />
+             <Field label={t.staffCount} val={d.actors.staffCount} set={v=>setD('actors.staffCount', v===''?0:parseInt(v))} type="number" />
+          </div>
+        )}
+        {tab === 'action' && (
+          <>
+             <div className="space-y-3"><h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-2"><List size={12}/> {t.sopSteps}</h4>{(d.steps||[]).map((s,i)=>(<div key={i} className="flex gap-2 items-start"><span className="text-xs font-mono text-gray-400 pt-2.5 select-none">{i+1}.</span><textarea className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-lg text-sm p-2.5 focus:ring-2 focus:ring-indigo-500 outline-none transition-shadow resize-none" rows={2} value={s} onChange={e=>{const ns=[...d.steps]; ns[i]=e.target.value; updateData({...d, steps:ns});}}/></div>))}<button onClick={()=>{updateData({...d, steps:[...(d.steps||[]),""]})}} className="w-full py-2.5 border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg text-xs font-bold text-gray-500 dark:text-gray-400 hover:border-indigo-400 hover:text-indigo-500 transition-colors">+ Add Step</button></div>
+             <div className="pt-6 border-t border-gray-200 dark:border-gray-700 space-y-3"><h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-2"><CheckSquare size={12}/> {t.qcPoints}</h4>{(d.qc.checkpoints||[]).map((q,i)=>(<input key={i} className="w-full border border-red-100 dark:border-red-900/50 bg-red-50 dark:bg-red-900/10 rounded-lg text-sm p-2.5 focus:ring-2 focus:ring-red-500 outline-none text-red-800 dark:text-red-200 placeholder-red-300" value={q} onChange={e=>{const nc=[...d.qc.checkpoints]; nc[i]=e.target.value; updateData({...d, qc:{...d.qc, checkpoints:nc}});}}/>))}<button onClick={()=>{const nc=[...(d.qc.checkpoints||[])]; nc.push(""); updateData({...d, qc:{...d.qc, checkpoints:nc}});}} className="w-full py-2.5 border-2 border-dashed border-red-200 dark:border-red-900/50 rounded-lg text-xs font-bold text-red-400 hover:border-red-400 hover:text-red-500 transition-colors">+ Add Checkpoint</button></div>
+          </>
+        )}
+        {tab === 'res' && (
+          <>
+            <div className="space-y-3"><h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t.resources}</h4><TagInput items={d.resources.equipment} onChange={v=>setD('resources.equipment', v)} placeholder="Add Equipment..."/><TagInput items={d.resources.consumables} onChange={v=>setD('resources.consumables', v)} placeholder="Add Consumables..." color="orange"/></div>
+            <div className="pt-6 border-t border-gray-200 dark:border-gray-700 space-y-3"><h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t.outcomes}</h4><TagInput items={d.outcomes} onChange={v=>setD('outcomes', v)} placeholder="Add Outputs..." color="purple"/></div>
+            <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-xl border border-red-100 dark:border-red-900/30 space-y-4 mt-4"><h4 className="text-xs font-bold text-red-700 dark:text-red-400 uppercase tracking-wider flex items-center gap-2"><Trash size={12}/> {t.waste}</h4><Field label="Type" val={d.waste.type} set={v=>setD('waste.type',v)} /><Field label="Handling" val={d.waste.handling} set={v=>setD('waste.handling',v)} /></div>
+          </>
+        )}
+        {tab === 'arch' && (
+          <div className="space-y-6">
+             <Field label={t.area} val={d.spatial.area} set={v=>setD('spatial.area', v===''?0:parseFloat(v))} type="number"/>
+             <div className="space-y-3">
+                <div className="flex justify-between items-center"><h4 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider flex items-center gap-2"><Settings size={12}/> {t.customArch}</h4><button onClick={()=>{const nd=JSON.parse(JSON.stringify(d)); if(!nd.spatial.specs)nd.spatial.specs=[]; nd.spatial.specs.push({id:Date.now(), name:"Param", value:"-"}); updateData(nd);}} className="text-[10px] bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-300 px-2.5 py-1.5 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-800 transition-colors font-bold">{t.addSpec}</button></div>
+                {(d.spatial.specs||[]).map((spec, i) => (
+                   <div key={spec.id||i} className="flex gap-3 items-center bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm group">
+                      <div className="flex-1 space-y-1.5">
+                         <input className="w-full text-xs font-bold bg-transparent border-none p-0 text-gray-500 dark:text-gray-400 focus:ring-0" placeholder={t.specName} value={spec.name} onChange={(e)=>{const nd=JSON.parse(JSON.stringify(d)); nd.spatial.specs[i].name=e.target.value; updateData(nd);}} />
+                         <input className="w-full text-sm bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 text-gray-800 dark:text-gray-200" placeholder={t.specValue} value={spec.value} onChange={(e)=>{const nd=JSON.parse(JSON.stringify(d)); nd.spatial.specs[i].value=e.target.value; updateData(nd);}} />
+                      </div>
+                      <button onClick={()=>{const nd=JSON.parse(JSON.stringify(d)); nd.spatial.specs.splice(i,1); updateData(nd);}} className="text-gray-300 hover:text-red-500 transition-colors"><X size={16}/></button>
+                   </div>
+                ))}
+             </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Field = ({ label, val, set, area=false, type="text", icon }) => (
+  <div className="w-full group">
+    <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wider flex items-center gap-1.5 transition-colors group-focus-within:text-indigo-500">{icon} {label}</label>
+    {area ? <textarea className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-lg text-sm p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all text-gray-800 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-600" rows={2} value={val} onChange={e=>set(e.target.value)}/> : <input type={type} className="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-lg text-sm p-2.5 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all text-gray-800 dark:text-gray-100 placeholder-gray-300 dark:placeholder-gray-600" value={val === null || val === undefined || Number.isNaN(val) ? '' : val} onChange={e=>set(e.target.value)}/>}
+  </div>
+);
+
+const TagInput = ({ items, onChange, placeholder, color='indigo' }) => {
+  const [txt, setTxt] = useState("");
+  const add = () => { if(txt.trim()){ onChange([...items, txt.trim()]); setTxt(""); } };
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">{items.map((it,i) => (<span key={i} className={`text-xs px-2.5 py-1 rounded-full flex items-center gap-1.5 font-medium border border-${color}-100 dark:border-${color}-900 bg-${color}-50 dark:bg-${color}-900/30 text-${color}-700 dark:text-${color}-300`}>{it} <button onClick={()=>{const n=[...items]; n.splice(i,1); onChange(n)}} className={`hover:text-${color}-900 dark:hover:text-${color}-100`}><X size={12}/></button></span>))}</div>
+      <div className="flex gap-2"><input className="flex-1 border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded-lg text-xs p-2 focus:ring-2 focus:ring-indigo-500 outline-none dark:text-gray-200" value={txt} onChange={e=>setTxt(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()} placeholder={placeholder}/><button onClick={add} className="px-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-gray-600 dark:text-gray-300"><Plus size={14}/></button></div>
+    </div>
+  )
+};
+
+export default App;
